@@ -7,19 +7,25 @@
     "test": "test"
   },
   "scripts": {
-    "test": "jest --runInBand"
+    "start": "node src/api/index.js",
+    "dev": "node --watch src/api/index.js",
+    "test": "vitest",
+    "test:unit": "vitest tests/unit",
+    "test:integration": "vitest tests/integration",
+    "test:coverage": "vitest --coverage"
   },
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "express": "^5.1.0"
+    "bcrypt": "^6.0.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "mongodb": "^6.3.0",
+    "mongoose": "^8.20.2"
   },
   "devDependencies": {
-    "jest": "^29.6.1",
-    "supertest": "^6.3.3"
-  },
-  "jest": {
-    "testEnvironment": "node"
+    "supertest": "^6.3.3",
+    "vitest": "^1.0.0"
   }
 }

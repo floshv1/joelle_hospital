@@ -1,0 +1,69 @@
+@startuml joelle_hospital_data_model
+title Hospital Appointment Management - Data Model
+
+entity "User" as users {
+  * id : UUID
+  * role : enum {patient, practitioner, admin, staff}
+  * first_name : string
+  * last_name : string
+  * email : string
+  * phone : string
+  * hashed_password : string
+  * created_at : datetime
+  * updated_at : datetime
+}
+
+entity "Practitioner" as practitioners {
+  * id : UUID
+  * user_id : UUID
+  * specialty : string
+  * title : string
+  * default_duration : int
+  * description : text
+}
+
+entity "AvailabilitySlot" as availability_slots {
+  * id : UUID
+  * practitioner_id : UUID
+  * start_datetime : datetime
+  * end_datetime : datetime
+  * recurrence_rule : string
+  * is_exception : boolean
+}
+
+entity "Appointment" as appointments {
+  * id : UUID
+  * patient_id : UUID
+  * practitioner_id : UUID
+  * start_datetime : datetime
+  * end_datetime : datetime
+  * status : enum {booked, confirmed, cancelled, no-show}
+  * created_by : UUID
+  * created_at : datetime
+  * updated_at : datetime
+}
+
+entity "Notification" as notifications {
+  * id : UUID
+  * appointment_id : UUID
+  * type : enum {confirmation, reminder, cancellation}
+  * status : enum {pending, sent, failed}
+  * sent_at : datetime
+}
+
+entity "AuditLog" as audit_logs {
+  * id : UUID
+  * user_id : UUID
+  * action : string
+  * details : text
+  * timestamp : datetime
+}
+
+users ||--o{ practitioners : "1 to 0..1"
+practitioners ||--o{ availability_slots : "1 to many"
+users ||--o{ appointments : "1 to many (as patient)"
+practitioners ||--o{ appointments : "1 to many"
+appointments ||--o{ notifications : "1 to many"
+users ||--o{ audit_logs : "1 to many"
+
+@enduml
