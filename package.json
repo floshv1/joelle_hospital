@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node src/api/index.js",
     "dev": "node --watch src/api/index.js",
+    "init:db": "node src/database/init.js",
     "test": "vitest",
     "test:unit": "vitest tests/unit",
     "test:integration": "vitest tests/integration",
