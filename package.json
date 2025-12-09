@@ -1,8 +1,8 @@
 {
-  "name": "tp5",
+  "name": "joelle_hospital",
   "version": "1.0.0",
   "type": "module",
-  "main": "index.js",
+  "main": "src/api/index.js",
   "directories": {
     "test": "test"
   },
@@ -17,24 +17,17 @@
   },
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "Hospital management system with MongoDB Atlas",
   "dependencies": {
     "bcrypt": "^6.0.0",
-    "dotenv": "^17.2.3",
-    "express": "^5.1.0",
-    "mongodb": "^6.3.0",
-    "mongoose": "^8.20.2"
-  },
-  "devDependencies": {
-    "supertest": "^6.3.3",
-    "vitest": "^1.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.3",
-    "pg": "^8.16.3"
+    "mongodb": "^6.3.0"
   },
-  "jest": {
-    "testEnvironment": "node"
+  "devDependencies": {
+    "supertest": "^6.3.3",
+    "vitest": "^1.0.0"
   }
 }
