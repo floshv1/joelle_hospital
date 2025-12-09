@@ -19,8 +19,8 @@ async function initializeDatabase() {
         await client.connect();
         console.log("✓ Connected to MongoDB");
 
-        const db = client.db();
-        const databaseName = db.name;
+        const db = client.db("joelle");
+        const databaseName = db.databaseName || "joelle";
         console.log(`✓ Using database: ${databaseName}`);
 
         // Collections to create

@@ -27,7 +27,7 @@ function getClient() {
 export async function connectToDb() {
     const mongoClient = getClient();
     await mongoClient.connect();
-    db = mongoClient.db();
+    db = mongoClient.db("joelle");
     console.log("Connected to MongoDB:", db.databaseName);
 }
 
