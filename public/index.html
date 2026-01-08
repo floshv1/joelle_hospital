@@ -242,6 +242,7 @@
             const [appointments, setAppointments] = useState([]);
             const [practitionerProfile, setPractitionerProfile] = useState(null);
             
+            // États du formulaire
             const [spec, setSpec] = useState('Généraliste');
             const [desc, setDesc] = useState('');
             const [loading, setLoading] = useState(false);
@@ -255,7 +256,6 @@
                     const res = await fetch('/api/practitioners');
                     const practitioners = await res.json();
                     
-                    // Comparaison sécurisée (convertit tout en texte pour être sûr)
                     const currentUserId = user._id || user.id;
                     const myProfile = practitioners.find(p => String(p.user_id) === String(currentUserId));
                     
@@ -284,6 +284,7 @@
                 }
 
                 try {
+                    // 1. CRÉATION DU PROFIL
                     const res = await fetch('/api/practitioners', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -297,21 +298,47 @@
                     if (res.ok) {
                         const newDoc = await res.json();
                         
-                        const tomorrow = new Date();
-                        tomorrow.setDate(tomorrow.getDate() + 1);
-                        const start = new Date(tomorrow); start.setHours(9, 0, 0, 0);
-                        const end = new Date(start); end.setMinutes(30);
+                        // 2. GÉNÉRATION AUTOMATIQUE DES CRÉNEAUX (SANS BOUTON)
+                        // Semaine prochaine : Lundi à Vendredi
+                        const d = new Date();
+                        d.setDate(d.getDate() + ((1 + 7 - d.getDay()) % 7) || 7); // Trouver le prochain Lundi
+                        d.setHours(0,0,0,0);
 
-                        await fetch('/api/availability-slots', { 
-                            method: 'POST', 
-                            headers: {'Content-Type': 'application/json'}, 
-                            body: JSON.stringify({ practitioner_id: newDoc._id, start_datetime: start, end_datetime: end }) 
-                        });
+                        const hours = [9, 10, 11, 14, 15]; // Les heures demandées
+                        const requests = [];
 
-                        alert("✅ Profil activé !");
+                        // Boucle sur 5 jours (Lundi -> Vendredi)
+                        for (let i = 0; i < 5; i++) { 
+                            const currentDay = new Date(d);
+                            currentDay.setDate(d.getDate() + i);
+
+                            hours.forEach(h => {
+                                const start = new Date(currentDay);
+                                start.setHours(h, 0, 0, 0);
+                                
+                                const end = new Date(start);
+                                end.setHours(h + 1); // Durée 1h
+
+                                requests.push(
+                                    fetch('/api/availability-slots', { 
+                                        method: 'POST', 
+                                        headers: {'Content-Type': 'application/json'}, 
+                                        body: JSON.stringify({ 
+                                            practitioner_id: newDoc._id, 
+                                            start_datetime: start, 
+                                            end_datetime: end 
+                                        }) 
+                                    })
+                                );
+                            });
+                        }
+
+                        // On attend que tous les créneaux soient créés
+                        await Promise.all(requests);
+
+                        alert("✅ Profil créé et planning généré automatiquement !");
                         setPractitionerProfile(newDoc); 
                         setAppointments([]); 
-
                     } else {
                         const errorData = await res.json();
                         alert(`Erreur : ${errorData.error}`);
@@ -334,6 +361,7 @@
                         <div className="card" style={{width: '100%', borderLeft: '4px solid #ffc107', textAlign:'left'}}>
                             <h3 style={{color:'#d39e00'}}>⚠️ Finalisation de votre compte</h3>
                             <p>Bienvenue Docteur. Pour activer votre espace de rendez-vous, veuillez renseigner votre spécialité.</p>
+                            <p style={{fontSize:'0.9em', color:'#666'}}>Note : Un planning type sera généré automatiquement pour la semaine prochaine.</p>
                             
                             <form onSubmit={handleCreateProfile} style={{marginTop:'20px'}}>
                                 <label style={{fontWeight:'bold'}}>Spécialité :</label>
