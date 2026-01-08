@@ -1,43 +1,47 @@
-// src/controllers/authController.js
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { findUserByEmail, createUser } from '../models/userModel.js';
+import { findUserByEmail, createUser } from '../models/User.js'; // Vérifie bien la majuscule du fichier User.js
 import dotenv from 'dotenv';
 
-// Load environment variables
 dotenv.config();
 
-//Handles user login.
-// Verifies credentials and issues a JWT token upon success.
+// --- LOGIN ---
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Basic validation
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required" });
-    }
+    // 1. Vérif basique
+    if (!email || !password) return res.status(400).json({ error: "Email et mot de passe requis" });
 
-    // Retrieve user from the database
+    // 2. Récupération de l'user
     const user = await findUserByEmail(email);
-    if (!user) {
-      return res.status(401).json({ error: "Invalid email or password" });
+    if (!user) return res.status(401).json({ error: "Email incorrect" });
+
+    // --- DEBUG LOG (Regarde ton terminal !) ---
+    console.log(`🔍 Tentative de login pour ${email}`);
+    console.log("   Mot de passe en base (hashedPassword) :", user.hashedPassword ? "PRÉSENT" : "ABSENT ❌");
+    console.log("   Mot de passe en base (hashed_password) :", user.hashed_password ? "PRÉSENT (Mauvais format)" : "ABSENT");
+
+    // 3. Vérification du mot de passe
+    // On s'assure qu'on a bien quelque chose à comparer
+    const storedHash = user.hashedPassword || user.hashed_password; // On tente les deux pour être gentil, mais on veut hashedPassword
+    
+    if (!storedHash) {
+        console.error("❌ ERREUR FATALE : L'utilisateur en base n'a pas de mot de passe crypté !");
+        return res.status(500).json({ error: "Compte corrompu (pas de mot de passe). Veuillez recréer le compte." });
     }
 
-    // Verify password (compare plain text with stored hash)
-    const isMatch = await bcrypt.compare(password, user.hashed_password);
-    if (!isMatch) {
-      return res.status(401).json({ error: "Invalid email or password" });
-    }
+    const isMatch = await bcrypt.compare(password, storedHash);
+    
+    if (!isMatch) return res.status(401).json({ error: "Mot de passe incorrect" });
 
-    // Generate JWT Token
+    // 4. Token
     const token = jwt.sign(
-      { userId: user.id, role: user.role }, // Payload data
-      process.env.JWT_SECRET,               // Secret key from .env
-      { expiresIn: '24h' }                  // Token expiration time
+      { userId: user._id, role: user.role }, 
+      process.env.JWT_SECRET || 'secret_temp',              
+      { expiresIn: '24h' }                  
     );
 
-    // Send success response
     res.status(200).json({
       message: "Login successful",
       token: token,
@@ -45,7 +49,8 @@ export const login = async (req, res) => {
         id: user._id,
         email: user.email,
         role: user.role,
-        firstName: user.first_name
+        firstName: user.firstName,
+        lastName: user.lastName
       }
     });
 
@@ -55,45 +60,39 @@ export const login = async (req, res) => {
   }
 };
 
-// Handles user registration.
-// Validates input, hashes the password, and creates a new user record.
+// --- REGISTER ---
 export const register = async (req, res) => {
   try {
     const { firstName, lastName, email, phone, password, role } = req.body;
 
-    // Basic validation
     if (!email || !password || !firstName || !lastName) {
-      return res.status(400).json({ error: "All fields are required" });
+      return res.status(400).json({ error: "Tous les champs sont requis" });
     }
 
-    // 2. Check if email already exists
     const userExists = await findUserByEmail(email);
-    if (userExists) {
-      return res.status(400).json({ error: "Email is already in use" });
-    }
+    if (userExists) return res.status(400).json({ error: "Email déjà utilisé" });
 
-    // 3. Hash the password for security
+    // Hashage
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // 4. Create the user via the model
+    // Création (On envoie bien hashedPassword en camelCase)
     const newUser = await createUser({
-      role: role || 'patient', // Default to 'patient' if not specified
+      role: role || 'patient',
       firstName,
       lastName,
       email,
       phone,
-      hashedPassword // Send the encrypted version
+      hashedPassword // <--- C'est lui qui est important
     });
 
-    // 5. Send success response
     res.status(201).json({
-      message: "Account created successfully",
-      user: newUser
+      message: "Compte créé",
+      user: { id: newUser._id, email: newUser.email }
     });
 
   } catch (error) {
     console.error("Registration Error:", error);
-    res.status(500).json({ error: "Server error during registration" });
+    res.status(500).json({ error: "Server error" });
   }
 };

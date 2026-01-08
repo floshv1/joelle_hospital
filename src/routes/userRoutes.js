@@ -1,24 +1,16 @@
-import express from "express";
-import { UserController } from "../controllers/UserController.js";
+import express from 'express';
+import { UserController } from '../controllers/UserController.js';
 
 const router = express.Router();
 
-// POST: Create a new user
-router.post("/", UserController.createUser);
 
-// GET: Get all users (with optional role filter)
-router.get("/", UserController.getAllUsers);
+// Récupérer tous les utilisateurs (GET /api/users)
+router.get('/', UserController.getAllUsers);
 
-// GET: Get user by email
-router.get("/email/:email", UserController.getUserByEmail);
+// Récupérer un utilisateur par ID (GET /api/users/:id)
+router.get('/:id', UserController.getUserById);
 
-// GET: Get user by ID
-router.get("/:id", UserController.getUserById);
-
-// PUT: Update user
-router.put("/:id", UserController.updateUser);
-
-// DELETE: Delete user
-router.delete("/:id", UserController.deleteUser);
+// Supprimer un utilisateur (DELETE /api/users/:id)
+router.delete('/:id', UserController.deleteUser);
 
 export default router;

@@ -1,22 +1,24 @@
 import { Practitioner } from "../models/Practitioner.js";
 
 export class PractitionerController {
-  // Create a new practitioner
+  
+  // --- CRÉATION (C'est ici que tu avais l'erreur 400) ---
   static async createPractitioner(req, res) {
     try {
-      const { user_id, specialty, title, default_duration, description } = req.body;
+      const { user_id, specialty, title, description, address } = req.body;
 
-      // Validate required fields
-      if (!user_id || !specialty || !title) {
-        return res.status(400).json({ error: "Missing required fields" });
+      // Validation simple : on vérifie juste l'essentiel
+      if (!user_id || !specialty) {
+        return res.status(400).json({ error: "Champs obligatoires manquants (user_id ou specialty)" });
       }
 
-      const practitioner = await Practitioner.create({
-        user_id,
-        specialty,
-        title,
-        default_duration: default_duration || 30,
-        description: description || "",
+      // On appelle le Modèle pour créer (l'ID sera stocké en texte, c'est OK)
+      const practitioner = await Practitioner.create({ 
+        user_id, 
+        specialty, 
+        title, 
+        description, 
+        address 
       });
 
       res.status(201).json(practitioner);
@@ -25,32 +27,17 @@ export class PractitionerController {
     }
   }
 
-  // Get practitioner by ID
-  static async getPractitionerById(req, res) {
-    try {
-      const { id } = req.params;
-      const practitioner = await Practitioner.findById(id);
-
-      if (!practitioner) {
-        return res.status(404).json({ error: "Practitioner not found" });
-      }
-
-      res.json(practitioner);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  }
-
-  // Get all practitioners
+  // --- LECTURE (C'est ici que la conversion magique du Modèle va servir) ---
   static async getAllPractitioners(req, res) {
     try {
       const { specialty } = req.query;
-      let practitioners;
+      
+      // On récupère la liste complète (avec les noms grâce au $lookup du Modèle)
+      let practitioners = await Practitioner.findAll();
 
+      // Petit filtre si demandé par le frontend
       if (specialty) {
-        practitioners = await Practitioner.findBySpecialty(specialty);
-      } else {
-        practitioners = await Practitioner.findAll();
+        practitioners = practitioners.filter(p => p.specialty === specialty);
       }
 
       res.json(practitioners);
@@ -59,68 +46,29 @@ export class PractitionerController {
     }
   }
 
-  // Get practitioner by user ID
-  static async getPractitionerByUserId(req, res) {
-    try {
-      const { userId } = req.params;
-      const practitioner = await Practitioner.findByUserId(userId);
-
-      if (!practitioner) {
-        return res.status(404).json({ error: "Practitioner not found for this user" });
-      }
-
-      res.json(practitioner);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  }
-
-  // Get practitioners by specialty
-  static async getPractitionersBySpecialty(req, res) {
-    try {
-      const { specialty } = req.params;
-      const practitioners = await Practitioner.findBySpecialty(specialty);
-
-      if (practitioners.length === 0) {
-        return res.status(404).json({ error: "No practitioners found for this specialty" });
-      }
-
-      res.json(practitioners);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  }
-
-  // Update practitioner
-  static async updatePractitioner(req, res) {
-    try {
-      const { id } = req.params;
-      const updates = req.body;
-
-      const success = await Practitioner.update(id, updates);
-
-      if (!success) {
-        return res.status(404).json({ error: "Practitioner not found" });
-      }
-
-      const practitioner = await Practitioner.findById(id);
-      res.json(practitioner);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  }
-
-  // Delete practitioner
+  // --- SUPPRESSION ---
   static async deletePractitioner(req, res) {
     try {
       const { id } = req.params;
       const success = await Practitioner.delete(id);
-
+      
       if (!success) {
-        return res.status(404).json({ error: "Practitioner not found" });
+        return res.status(404).json({ error: "Praticien introuvable" });
       }
-
-      res.json({ message: "Practitioner deleted successfully" });
+      
+      res.json({ message: "Praticien supprimé avec succès" });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+  
+  // --- LECTURE PAR ID ---
+  static async getPractitionerById(req, res) {
+     try {
+      const { id } = req.params;
+      const practitioner = await Practitioner.findById(id);
+      if (!practitioner) return res.status(404).json({ error: "Not found" });
+      res.json(practitioner);
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
