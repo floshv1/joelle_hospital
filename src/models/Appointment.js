@@ -17,6 +17,7 @@ export class Appointment {
       start_datetime: new Date(appointmentData.start_datetime),
       end_datetime: new Date(appointmentData.end_datetime),
       status: appointmentData.status || "booked",
+      created_by: new ObjectId(appointmentData.created_by),
       created_at: new Date(),
       updated_at: new Date(),
     };
@@ -24,14 +25,15 @@ export class Appointment {
     return { ...appointment, _id: result.insertedId };
   }
 
-  
+  static async findById(id) {
+    const collection = await this.getCollection();
+    return collection.findOne({ _id: new ObjectId(id) });
+  }
+
   static async findByPatientId(patientId) {
     const collection = await this.getCollection();
     return collection.aggregate([
-      
       { $match: { patient_id: new ObjectId(patientId) } },
-      
-      
       {
         $lookup: {
           from: "practitioners",
@@ -41,8 +43,6 @@ export class Appointment {
         }
       },
       { $unwind: "$practitionerInfo" },
-
-      
       {
         $lookup: {
           from: "users",
@@ -51,14 +51,25 @@ export class Appointment {
           as: "doctorInfo"
         }
       },
-      { $unwind: "$doctorInfo" } 
+      { $unwind: "$doctorInfo" }
     ]).toArray();
   }
-  // ---------------------------------------------
 
-  static async findById(id) {
+  static async findByPractitionerId(practitionerId) {
     const collection = await this.getCollection();
-    return collection.findOne({ _id: new ObjectId(id) });
+    return collection.aggregate([
+      { $match: { practitioner_id: new ObjectId(practitionerId) } },
+      
+      {
+        $lookup: {
+          from: "users",
+          localField: "patient_id",  
+          foreignField: "_id",       
+          as: "patientInfo"          
+        }
+      },
+      { $unwind: "$patientInfo" } 
+    ]).toArray();
   }
 
   static async update(id, updates) {

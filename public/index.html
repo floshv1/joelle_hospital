@@ -241,47 +241,163 @@
         function DoctorDashboard({ user, onLogout }) {
             const [appointments, setAppointments] = useState([]);
             const [practitionerProfile, setPractitionerProfile] = useState(null);
+            
+            const [spec, setSpec] = useState('Généraliste');
+            const [desc, setDesc] = useState('');
+            const [loading, setLoading] = useState(false);
 
             useEffect(() => {
-                async function init() {
-                    try {
-                        const res = await fetch('/api/practitioners');
-                        const practitioners = await res.json();
-                        const myProfile = practitioners.find(p => p.user_id === user._id);
-                        
-                        if (myProfile) {
-                            setPractitionerProfile(myProfile);
-                            const resAppt = await fetch(`/api/appointments/practitioner/${myProfile._id}`);
-                            if(resAppt.ok) setAppointments(await resAppt.json());
+                fetchData();
+            }, [user._id, user.id]);
+
+            async function fetchData() {
+                try {
+                    const res = await fetch('/api/practitioners');
+                    const practitioners = await res.json();
+                    
+                    // Comparaison sécurisée (convertit tout en texte pour être sûr)
+                    const currentUserId = user._id || user.id;
+                    const myProfile = practitioners.find(p => String(p.user_id) === String(currentUserId));
+                    
+                    if (myProfile) {
+                        setPractitionerProfile(myProfile);
+                        const resAppt = await fetch(`/api/appointments/practitioner/${myProfile._id}`);
+                        if(resAppt.ok) {
+                            const data = await resAppt.json();
+                            const sorted = data.sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime));
+                            setAppointments(sorted);
                         }
-                    } catch (err) { console.error(err); }
+                    }
+                } catch (err) { console.error(err); }
+            }
+
+            const handleCreateProfile = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+
+                const userId = user._id || user.id; 
+
+                if (!userId) {
+                    alert("Erreur ID utilisateur.");
+                    setLoading(false);
+                    return;
                 }
-                init();
-            }, [user._id]);
+
+                try {
+                    const res = await fetch('/api/practitioners', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            user_id: userId,
+                            specialty: spec,
+                            description: desc || "Médecin certifié."
+                        })
+                    });
+
+                    if (res.ok) {
+                        const newDoc = await res.json();
+                        
+                        const tomorrow = new Date();
+                        tomorrow.setDate(tomorrow.getDate() + 1);
+                        const start = new Date(tomorrow); start.setHours(9, 0, 0, 0);
+                        const end = new Date(start); end.setMinutes(30);
+
+                        await fetch('/api/availability-slots', { 
+                            method: 'POST', 
+                            headers: {'Content-Type': 'application/json'}, 
+                            body: JSON.stringify({ practitioner_id: newDoc._id, start_datetime: start, end_datetime: end }) 
+                        });
+
+                        alert("✅ Profil activé !");
+                        setPractitionerProfile(newDoc); 
+                        setAppointments([]); 
+
+                    } else {
+                        const errorData = await res.json();
+                        alert(`Erreur : ${errorData.error}`);
+                    }
+                } catch (err) { console.error(err); }
+                setLoading(false);
+            };
 
             return (
-                <div style={{maxWidth: '800px', margin: '0 auto'}}>
-                    <header style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px'}}>
-                        <h2>Espace Médecin - Dr. {user.lastName}</h2>
+                <div style={{maxWidth: '800px', margin: '0 auto', padding: '20px'}}>
+                    <header style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'30px'}}>
+                        <div>
+                            <h2 style={{marginBottom:'5px'}}>Dr. {user.lastName} 👨‍⚕️</h2>
+                            <span style={{color:'#666'}}>Espace Praticien</span>
+                        </div>
                         <button onClick={onLogout} style={{width:'auto', background:'#6c757d'}}>Déconnexion</button>
                     </header>
 
                     {!practitionerProfile ? (
-                        <div className="card" style={{width: '100%'}}>
-                            <p className="error">⚠️ Aucun profil praticien trouvé pour ce compte utilisateur.</p>
-                            <p>Veuillez créer un profil praticien via l'API (POST /practitioners).</p>
+                        <div className="card" style={{width: '100%', borderLeft: '4px solid #ffc107', textAlign:'left'}}>
+                            <h3 style={{color:'#d39e00'}}>⚠️ Finalisation de votre compte</h3>
+                            <p>Bienvenue Docteur. Pour activer votre espace de rendez-vous, veuillez renseigner votre spécialité.</p>
+                            
+                            <form onSubmit={handleCreateProfile} style={{marginTop:'20px'}}>
+                                <label style={{fontWeight:'bold'}}>Spécialité :</label>
+                                <select value={spec} onChange={e => setSpec(e.target.value)} style={{marginBottom:'15px'}}>
+                                    <option value="Généraliste">Généraliste</option>
+                                    <option value="Dentiste">Dentiste</option>
+                                    <option value="Cardiologue">Cardiologue</option>
+                                    <option value="Diagnostien">Diagnostien</option>
+                                    <option value="Pédiatre">Pédiatre</option>
+                                </select>
+
+                                <label style={{fontWeight:'bold'}}>Description courte :</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="Ex: Expert en médecine du sport..." 
+                                    value={desc} 
+                                    onChange={e => setDesc(e.target.value)} 
+                                />
+
+                                <button type="submit" disabled={loading} style={{background:'#ffc107', color:'black'}}>
+                                    {loading ? 'Création...' : 'Activer mon profil Médecin'}
+                                </button>
+                            </form>
                         </div>
                     ) : (
                         <div className="card" style={{width: '100%', textAlign:'left'}}>
-                            <h3>Mon Planning ({practitionerProfile.specialty})</h3>
-                            <p>Total RDV : {appointments.length}</p>
-                            <hr/>
-                            {appointments.length === 0 ? <p>Aucun patient prévu.</p> :
+                            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'1px solid #eee', paddingBottom:'10px', marginBottom:'15px'}}>
+                                <h3 style={{margin:0}}>📅 Mon Planning</h3>
+                                <span style={{background:'#e3f2fd', color:'#0d47a1', padding:'2px 10px', borderRadius:'15px', fontSize:'14px'}}>
+                                    {practitionerProfile.specialty}
+                                </span>
+                            </div>
+                            
+                            {appointments.length === 0 ? <p style={{color:'#666', fontStyle:'italic'}}>Aucun rendez-vous prévu pour le moment.</p> :
                                 appointments.map(appt => (
-                                    <div key={appt._id} style={{borderLeft:'4px solid #007bff', padding:'10px', marginBottom:'10px', background:'#fff'}}>
-                                        <strong>Patient ID: {appt.patient_id}</strong>
-                                        <br/>
-                                        🕒 {new Date(appt.start_datetime).toLocaleString()}
+                                    <div key={appt._id} style={{
+                                        border:'1px solid #eee', 
+                                        borderRadius:'8px',
+                                        padding:'15px', 
+                                        marginBottom:'15px', 
+                                        background:'#fff',
+                                        borderLeft:'5px solid #007bff',
+                                        boxShadow:'0 2px 4px rgba(0,0,0,0.05)'
+                                    }}>
+                                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
+                                            <div>
+                                                <div style={{fontSize:'1.1em', fontWeight:'bold', color:'#333', marginBottom:'5px'}}>
+                                                    👤 {appt.patientInfo ? `${appt.patientInfo.firstName} ${appt.patientInfo.lastName}` : "Patient Inconnu"}
+                                                </div>
+                                                <div style={{color:'#666', fontSize:'0.9em', marginBottom:'10px'}}>
+                                                    📧 {appt.patientInfo ? appt.patientInfo.email : ""} <br/>
+                                                    📞 {appt.patientInfo ? appt.patientInfo.phone || "Non renseigné" : ""}
+                                                </div>
+                                            </div>
+
+                                            <div style={{textAlign:'right'}}>
+                                                <div style={{fontWeight:'bold', color:'#007bff', fontSize:'1.1em'}}>
+                                                    {new Date(appt.start_datetime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                                </div>
+                                                <div style={{fontSize:'0.9em', color:'#555'}}>
+                                                    {new Date(appt.start_datetime).toLocaleDateString()}
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 ))
                             }
