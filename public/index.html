@@ -25,176 +25,307 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        function App() {
-            // states
-            const [isLoginMode, setIsLoginMode] = useState(true); // Toggle between Login and Register
-            const [token, setToken] = useState(sessionStorage.getItem('token') || null);
-            const [user, setUser] = useState(() => {
-                const storedUser = sessionStorage.getItem('user');
-                return storedUser ? JSON.parse(storedUser) : null;
+
+function PatientDashboard({ user, onLogout }) {
+    const [doctors, setDoctors] = useState([]);
+    const [appointments, setAppointments] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [msg, setMsg] = useState('');
+
+    useEffect(() => {
+        fetchDoctors();
+        fetchMyAppointments();
+    }, []);
+
+    const fetchDoctors = async () => {
+        try {
+            const res = await fetch('/api/practitioners');
+            const data = await res.json();
+            setDoctors(data);
+        } catch (err) { console.error("Erreur chargement médecins", err); }
+    };
+
+    const fetchMyAppointments = async () => {
+        try {
+            const res = await fetch(`/api/appointments/patient/${user._id}`);
+            if(res.ok) setAppointments(await res.json());
+        } catch (err) { console.error("Erreur chargement RDV", err); }
+    };
+
+    const handleBook = async (practitionerId) => {
+        setMsg('Réservation en cours...');
+        // Pour l'exemple, on réserve un créneau demain à 10h
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(10, 0, 0, 0);
+
+        const appointmentData = {
+            patient_id: user._id,
+            practitioner_id: practitionerId,
+            start_datetime: tomorrow.toISOString(),
+            end_datetime: new Date(tomorrow.getTime() + 60*60*1000).toISOString(), // +1h
+            created_by: user._id
+        };
+
+        try {
+            const res = await fetch('/api/appointments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(appointmentData)
             });
-            const [error, setError] = useState('');
-            const [successMsg, setSuccessMsg] = useState('');
-            const [loading, setLoading] = useState(true);
-
-            // Form Fields
-            const [email, setEmail] = useState('');
-            const [password, setPassword] = useState('');
-            const [firstName, setFirstName] = useState('');
-            const [lastName, setLastName] = useState('');
-            const [phone, setPhone] = useState('');
-
-            // On component mount, verify session is intact
-            useEffect(() => {
-                const storedToken = sessionStorage.getItem('token');
-                const storedUser = sessionStorage.getItem('user');
-                
-                if (storedToken && storedUser) {
-                    // Session exists
-                    setToken(storedToken);
-                    setUser(JSON.parse(storedUser));
-                } else {
-                    // No session, clear everything
-                    handleLogout();
-                }
-                setLoading(false);
-            }, []);
-
-            // logic handler
-            const handleLogin = async (e) => {
-                e.preventDefault();
-                setError(''); setSuccessMsg('');
-                try {
-                    const res = await fetch('/api/auth/login', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ email, password })
-                    });
-                    const data = await res.json();
-                    if (res.ok) {
-                        setToken(data.token);
-                        setUser(data.user);
-                        // Use sessionStorage instead of localStorage
-                        sessionStorage.setItem('token', data.token);
-                        sessionStorage.setItem('user', JSON.stringify(data.user));
-                        // Clear form fields
-                        setEmail('');
-                        setPassword('');
-                    } else { 
-                        setError(data.error); 
-                    }
-                } catch (err) { 
-                    setError('Server error'); 
-                }
-            };
-
-            //  register handler
-            const handleRegister = async (e) => {
-                e.preventDefault();
-                setError(''); setSuccessMsg('');
-                try {
-                    const res = await fetch('/api/auth/register', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            firstName, lastName, email, phone, password, 
-                            role: 'patient' // Force patient role for this example
-                        })
-                    });
-                    const data = await res.json();
-                    if (res.ok) {
-                        setSuccessMsg('Account created! Please log in.');
-                        setIsLoginMode(true); // Return to login view
-                        // Clear form fields
-                        setFirstName('');
-                        setLastName('');
-                        setEmail('');
-                        setPhone('');
-                        setPassword('');
-                    } else { 
-                        setError(data.error); 
-                    }
-                } catch (err) { 
-                    setError('Server error'); 
-                }
-            };
-
-            const handleLogout = () => {
-                setToken(null); 
-                setUser(null); 
-                sessionStorage.removeItem('token');
-                sessionStorage.removeItem('user');
-                setIsLoginMode(true);
-                // Clear all form fields
-                setEmail('');
-                setPassword('');
-                setFirstName('');
-                setLastName('');
-                setPhone('');
-            };
-
-            if (loading) {
-                return (
-                    <div className="card">
-                        <h2>Loading...</h2>
-                    </div>
-                );
+            if (res.ok) {
+                setMsg('✅ Rendez-vous confirmé !');
+                fetchMyAppointments(); // Rafraichir la liste des RDV
+            } else {
+                setMsg('❌ Erreur lors de la réservation');
             }
+        } catch (err) { setMsg('Erreur serveur'); }
+    };
 
-            // dashboard (If connected) 
-            if (token && user) {
-                return (
-                    <div className="card">
-                        <div className="success">Connected</div>
-                        <h3>Hello {user?.firstName || user?.first_name}</h3>
-                        <p>Email: <strong>{user?.email}</strong></p>
-                        <p>Role: <strong>{user?.role}</strong></p>
-                        <hr style={{margin:'20px 0', border:'0', borderTop:'1px solid #eee'}}/>
-                        <button onClick={handleLogout} style={{background:'#6c757d'}}>Logout</button>
-                    </div>
-                );
-            }
+    return (
+        <div style={{maxWidth: '800px', margin: '0 auto'}}>
+            <header style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px'}}>
+                <h2>Espace Patient - {user.firstName}</h2>
+                <button onClick={onLogout} style={{width:'auto', background:'#6c757d'}}>Déconnexion</button>
+            </header>
 
-            // forms (Login / Register)
-            return (
-                <div className="card">
-                    <h2>{isLoginMode ? 'Login' : 'Register'}</h2>
-                    
-                    {error && <div className="error">{error}</div>}
-                    {successMsg && <div className="success">{successMsg}</div>}
+            {msg && <div className="success">{msg}</div>}
 
-                    {isLoginMode ? (
-                        // login form
-                        <form onSubmit={handleLogin}>
-                            <input type="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} required />
-                            <input type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} required />
-                            <button type="submit">Log In</button>
-                        </form>
-                    ) : (
-                        // register form
-                        <form onSubmit={handleRegister}>
-                            <input type="text" placeholder="First Name" value={firstName} onChange={e=>setFirstName(e.target.value)} required />
-                            <input type="text" placeholder="Last Name" value={lastName} onChange={e=>setLastName(e.target.value)} required />
-                            <input type="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} required />
-                            <input type="tel" placeholder="Phone" value={phone} onChange={e=>setPhone(e.target.value)} />
-                            <input type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} required />
-                            <button type="submit" style={{background: '#28a745'}}>Create Account</button>
-                        </form>
-                    )}
-
-                    <p style={{marginTop: '15px', fontSize: '0.9rem'}}>
-                        {isLoginMode ? "No account yet?" : "Already have an account?"}
-                        <br/>
-                        <a href="#" onClick={(e) => { e.preventDefault(); setIsLoginMode(!isLoginMode); setError(''); }}>
-                            {isLoginMode ? "Create an account" : "Log In"}
-                        </a>
-                    </p>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'20px'}}>
+                {/* Colonne 1 : Liste des médecins */}
+                <div className="card" style={{width:'100%', textAlign:'left'}}>
+                    <h3>Trouver un médecin</h3>
+                    {doctors.length === 0 ? <p>Aucun médecin disponible</p> : 
+                        doctors.map(doc => (
+                            <div key={doc._id} style={{borderBottom:'1px solid #eee', padding:'10px 0'}}>
+                                <strong>Dr. {doc.specialty}</strong>
+                                <p style={{margin:'5px 0', color:'#666'}}>{doc.description || "Pas de description"}</p>
+                                <button onClick={() => handleBook(doc._id)} style={{padding:'5px 10px', fontSize:'14px'}}>
+                                    Prendre RDV (Demain 10h)
+                                </button>
+                            </div>
+                        ))
+                    }
                 </div>
-            );
-        }
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+                {/* Colonne 2 : Mes RDV */}
+                <div className="card" style={{width:'100%', textAlign:'left'}}>
+                    <h3>Mes Rendez-vous</h3>
+                    {appointments.length === 0 ? <p>Aucun rendez-vous prévu.</p> :
+                        appointments.map(appt => (
+                            <div key={appt._id} style={{background:'#f8f9fa', padding:'10px', marginBottom:'10px', borderRadius:'4px'}}>
+                                📅 {new Date(appt.start_datetime).toLocaleDateString()} à {new Date(appt.start_datetime).toLocaleTimeString()}
+                                <br/>
+                                <span style={{fontSize:'12px', color: appt.status==='booked'?'green':'gray'}}>Statut: {appt.status}</span>
+                            </div>
+                        ))
+                    }
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// --- COMPOSANT : DASHBOARD MEDECIN ---
+function DoctorDashboard({ user, onLogout }) {
+    const [appointments, setAppointments] = useState([]);
+    const [practitionerProfile, setPractitionerProfile] = useState(null);
+
+    useEffect(() => {
+        // 1. Récupérer le profil praticien lié à cet utilisateur
+        async function init() {
+            try {
+                const res = await fetch('/api/practitioners');
+                const practitioners = await res.json();
+                const myProfile = practitioners.find(p => p.user_id === user._id);
+                
+                if (myProfile) {
+                    setPractitionerProfile(myProfile);
+                    // 2. Récupérer les RDV associés à ce praticien
+                    const resAppt = await fetch(`/api/appointments/practitioner/${myProfile._id}`);
+                    if(resAppt.ok) setAppointments(await resAppt.json());
+                }
+            } catch (err) { console.error(err); }
+        }
+        init();
+    }, [user._id]);
+
+    return (
+        <div style={{maxWidth: '800px', margin: '0 auto'}}>
+            <header style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px'}}>
+                <h2>Espace Médecin - Dr. {user.lastName}</h2>
+                <button onClick={onLogout} style={{width:'auto', background:'#6c757d'}}>Déconnexion</button>
+            </header>
+
+            {!practitionerProfile ? (
+                <div className="card" style={{width: '100%'}}>
+                    <p className="error">⚠️ Aucun profil praticien trouvé pour ce compte utilisateur.</p>
+                    <p>Veuillez créer un profil praticien via l'API (POST /practitioners).</p>
+                </div>
+            ) : (
+                <div className="card" style={{width: '100%', textAlign:'left'}}>
+                    <h3>Mon Planning ({practitionerProfile.specialty})</h3>
+                    <p>Total RDV : {appointments.length}</p>
+                    <hr/>
+                    {appointments.length === 0 ? <p>Aucun patient prévu.</p> :
+                        appointments.map(appt => (
+                            <div key={appt._id} style={{borderLeft:'4px solid #007bff', padding:'10px', marginBottom:'10px', background:'#fff'}}>
+                                <strong>Patient ID: {appt.patient_id}</strong>
+                                <br/>
+                                🕒 {new Date(appt.start_datetime).toLocaleString()}
+                            </div>
+                        ))
+                    }
+                </div>
+            )}
+        </div>
+    );
+}
+
+// --- COMPOSANT PRINCIPAL ---
+function App() {
+    // states
+    const [isLoginMode, setIsLoginMode] = useState(true);
+    const [token, setToken] = useState(sessionStorage.getItem('token') || null);
+    const [user, setUser] = useState(() => {
+        const storedUser = sessionStorage.getItem('user');
+        return storedUser ? JSON.parse(storedUser) : null;
+    });
+    const [error, setError] = useState('');
+    const [successMsg, setSuccessMsg] = useState('');
+    const [loading, setLoading] = useState(true);
+
+    
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [firstName, setFirstName] = useState('');
+    const [lastName, setLastName] = useState('');
+    const [phone, setPhone] = useState('');
+    
+    // Switch role for registration (simple toggle for demo)
+    const [regRole, setRegRole] = useState('patient');
+
+    useEffect(() => {
+        const storedToken = sessionStorage.getItem('token');
+        const storedUser = sessionStorage.getItem('user');
+        
+        if (storedToken && storedUser) {
+            setToken(storedToken);
+            setUser(JSON.parse(storedUser));
+        } else {
+            handleLogout();
+        }
+        setLoading(false);
+    }, []);
+
+    const handleLogin = async (e) => {
+        e.preventDefault();
+        setError(''); setSuccessMsg('');
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setToken(data.token);
+                setUser(data.user);
+                sessionStorage.setItem('token', data.token);
+                sessionStorage.setItem('user', JSON.stringify(data.user));
+                setEmail(''); setPassword('');
+            } else { setError(data.error || 'Login failed'); }
+        } catch (err) { setError('Server error'); }
+    };
+
+    const handleRegister = async (e) => {
+        e.preventDefault();
+        setError(''); setSuccessMsg('');
+        try {
+            const res = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    firstName, lastName, email, phone, password, 
+                    role: regRole 
+                })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setSuccessMsg('Compte créé ! Connectez-vous.');
+                setIsLoginMode(true);
+                setFirstName(''); setLastName(''); setEmail(''); setPhone(''); setPassword('');
+            } else { setError(data.error); }
+        } catch (err) { setError('Server error'); }
+    };
+
+    const handleLogout = () => {
+        setToken(null); 
+        setUser(null); 
+        sessionStorage.removeItem('token');
+        sessionStorage.removeItem('user');
+        setIsLoginMode(true);
+    };
+
+    if (loading) return <div className="card"><h2>Loading...</h2></div>;
+
+    // --- ROUTAGE PRINCIPAL ---
+    if (token && user) {
+        // Si connecté, on affiche le bon dashboard selon le rôle
+        if (user.role === 'practitioner' || user.role === 'admin') {
+            return <DoctorDashboard user={user} onLogout={handleLogout} />;
+        } else {
+            return <PatientDashboard user={user} onLogout={handleLogout} />;
+        }
+    }
+
+    // --- ÉCRAN LOGIN / REGISTER ---
+    return (
+        <div className="card">
+            <h2>{isLoginMode ? 'Connexion' : 'Inscription'}</h2>
+            
+            {error && <div className="error">{error}</div>}
+            {successMsg && <div className="success">{successMsg}</div>}
+
+            {isLoginMode ? (
+                <form onSubmit={handleLogin}>
+                    <input type="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} required />
+                    <input type="password" placeholder="Mot de passe" value={password} onChange={e=>setPassword(e.target.value)} required />
+                    <button type="submit">Se connecter</button>
+                </form>
+            ) : (
+                <form onSubmit={handleRegister}>
+                    <input type="text" placeholder="Prénom" value={firstName} onChange={e=>setFirstName(e.target.value)} required />
+                    <input type="text" placeholder="Nom" value={lastName} onChange={e=>setLastName(e.target.value)} required />
+                    <input type="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} required />
+                    <input type="tel" placeholder="Téléphone" value={phone} onChange={e=>setPhone(e.target.value)} />
+                    <input type="password" placeholder="Mot de passe" value={password} onChange={e=>setPassword(e.target.value)} required />
+                    
+                    <div style={{margin:'10px 0', textAlign:'left'}}>
+                        <label>Je suis : </label>
+                        <select value={regRole} onChange={e=>setRegRole(e.target.value)} style={{padding:'5px'}}>
+                            <option value="patient">Patient</option>
+                            <option value="practitioner">Médecin</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" style={{background: '#28a745'}}>Créer un compte</button>
+                </form>
+            )}
+
+            <p style={{marginTop: '15px', fontSize: '0.9rem'}}>
+                {isLoginMode ? "Pas encore de compte ?" : "Déjà un compte ?"}
+                <br/>
+                <a href="#" onClick={(e) => { e.preventDefault(); setIsLoginMode(!isLoginMode); setError(''); }}>
+                    {isLoginMode ? "Créer un compte" : "Se connecter"}
+                </a>
+            </p>
+        </div>
+    );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
     </script>
 </body>
 </html>
