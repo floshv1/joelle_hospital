@@ -8,15 +8,16 @@ export class Practitioner {
     return getDb().collection(COLLECTION_NAME);
   }
 
+  // 1. CRÉATION : On s'assure que l'ID est bien enregistré en format Objet
   static async create(practitionerData) {
     const collection = await this.getCollection();
     const practitioner = {
       _id: new ObjectId(),
-      user_id: new ObjectId(practitionerData.user_id),
+      user_id: new ObjectId(practitionerData.user_id), // <--- CRITIQUE
       specialty: practitionerData.specialty,
-      title: practitionerData.title,
-      default_duration: practitionerData.default_duration, // in minutes
+      title: practitionerData.title || "Dr.",
       description: practitionerData.description,
+      address: practitionerData.address,
       created_at: new Date(),
       updated_at: new Date(),
     };
@@ -24,19 +25,31 @@ export class Practitioner {
     return { ...practitioner, _id: result.insertedId };
   }
 
+  // 2. LECTURE : On va chercher le Nom/Prénom dans la table users
+  static async findAll() {
+    const collection = await this.getCollection();
+    return collection.aggregate([
+      {
+        $lookup: { // <--- C'EST CA QUI TE MANQUE PEUT-ÊTRE
+          from: "users",
+          localField: "user_id",
+          foreignField: "_id",
+          as: "userInfo"
+        }
+      },
+      {
+        $unwind: {
+            path: "$userInfo",
+            preserveNullAndEmptyArrays: true
+        }
+      }
+    ]).toArray();
+  }
+
+  // ... (Garde findById, update, delete comme avant)
   static async findById(id) {
     const collection = await this.getCollection();
     return collection.findOne({ _id: new ObjectId(id) });
-  }
-
-  static async findByUserId(userId) {
-    const collection = await this.getCollection();
-    return collection.findOne({ user_id: new ObjectId(userId) });
-  }
-
-  static async findBySpecialty(specialty) {
-    const collection = await this.getCollection();
-    return collection.find({ specialty }).toArray();
   }
 
   static async update(id, updates) {
@@ -52,10 +65,5 @@ export class Practitioner {
     const collection = await this.getCollection();
     const result = await collection.deleteOne({ _id: new ObjectId(id) });
     return result.deletedCount > 0;
-  }
-
-  static async findAll(filter = {}) {
-    const collection = await this.getCollection();
-    return collection.find(filter).toArray();
   }
 }

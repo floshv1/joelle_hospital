@@ -9,9 +9,9 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
         .card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 350px; text-align: center; }
-        input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        input, select { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
         button { width: 100%; padding: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
         button:hover { background: #0056b3; }
         .error { color: #dc3545; background: #f8d7da; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 14px; }
@@ -25,9 +25,419 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
+        // --- Utilitaire pour formater les dates ---
+        function formatDate(isoString) {
+            const date = new Date(isoString);
+            return date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute:'2-digit' });
+        }
+
+        // --- COMPOSANT : DASHBOARD PATIENT ---
+        function PatientDashboard({ user, onLogout }) {
+            const [doctors, setDoctors] = useState([]);
+            const [appointments, setAppointments] = useState([]); 
+            const [specialtyFilter, setSpecialtyFilter] = useState('');
+            const [selectedDoctor, setSelectedDoctor] = useState(null);
+            const [slots, setSlots] = useState([]);
+            const [msg, setMsg] = useState('');
+
+            useEffect(() => {
+                fetchDoctors();
+                fetchMyAppointments();
+            }, [specialtyFilter]);
+
+            const getUserId = () => user ? (user._id || user.id) : null;
+
+            const fetchDoctors = async () => {
+                try {
+                    const url = specialtyFilter 
+                        ? `/api/practitioners?specialty=${encodeURIComponent(specialtyFilter)}`
+                        : '/api/practitioners';
+                    const res = await fetch(url);
+                    setDoctors(await res.json());
+                } catch (err) { console.error(err); }
+            };
+
+            const fetchMyAppointments = async () => {
+                const userId = getUserId();
+                if (!userId) return;
+
+                try {
+                    const res = await fetch(`/api/appointments/patient/${userId}`);
+                    if(res.ok) {
+                        const data = await res.json();
+                        if (Array.isArray(data)) {
+                            const sorted = data.sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime));
+                            setAppointments(sorted);
+                        } else {
+                            setAppointments([]);
+                        }
+                    }
+                } catch (err) { console.error(err); }
+            };
+
+            const handleViewSlots = async (doctor) => {
+                setSelectedDoctor(doctor);
+                setSlots([]); 
+                setMsg('Chargement...');
+                
+                const now = new Date();
+                const twoWeeksLater = new Date();
+                twoWeeksLater.setDate(now.getDate() + 14);
+
+                try {
+                    const docId = doctor._id || doctor.id;
+                    const res = await fetch(`/api/availability-slots/practitioner/${docId}/available?startDate=${now.toISOString()}&endDate=${twoWeeksLater.toISOString()}`);
+                    if (res.ok) {
+                        const allSlots = await res.json();
+                        allSlots.sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime));
+                        setSlots(allSlots);
+                        setMsg(allSlots.length === 0 ? 'Aucun créneau disponible.' : '');
+                    }
+                } catch (err) { setMsg("Erreur récupération créneaux"); }
+            };
+
+            const handleBookSlot = async (slot) => {
+                const userId = getUserId();
+                const docId = selectedDoctor._id || selectedDoctor.id;
+
+                if (!userId) {
+                    alert("Session invalide. Veuillez vous reconnecter.");
+                    return;
+                }
+                
+                if(!confirm(`Confirmer le RDV le ${formatDate(slot.start_datetime)} ?`)) return;
+
+                try {
+                    const res = await fetch('/api/appointments', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            patient_id: userId,
+                            practitioner_id: docId,
+                            start_datetime: slot.start_datetime,
+                            end_datetime: slot.end_datetime,
+                            created_by: userId
+                        })
+                    });
+
+                    const data = await res.json();
+
+                    if (res.ok) {
+                        alert('✅ Rendez-vous confirmé !');
+                        setSelectedDoctor(null); 
+                        setSlots([]);
+                        setTimeout(() => fetchMyAppointments(), 500);
+                    } else {
+                        alert('Erreur: ' + (data.error || 'Impossible de réserver.'));
+                    }
+                } catch (err) { alert('Erreur serveur'); }
+            };
+
+            return (
+                <div style={{maxWidth: '1000px', margin: '0 auto', padding: '20px'}}>
+                    <header style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'30px'}}>
+                        <div>
+                            <h2 style={{marginBottom:'5px'}}>Bonjour, {user.firstName} 👋</h2>
+                            <span style={{color:'#666'}}>Espace Patient</span>
+                        </div>
+                        <button onClick={onLogout} style={{width:'auto', background:'#6c757d'}}>Déconnexion</button>
+                    </header>
+
+                    <div style={{display:'grid', gridTemplateColumns:'2fr 1fr', gap:'30px'}}>
+                        
+                        {/* COLONNE GAUCHE : RECHERCHE MEDECIN */}
+                        <div>
+                            <div className="card" style={{marginBottom: '20px', textAlign: 'left'}}>
+                                <h3>🔍 Trouver un médecin</h3>
+                                <select 
+                                    value={specialtyFilter} 
+                                    onChange={(e) => setSpecialtyFilter(e.target.value)}
+                                    style={{padding:'10px', width:'100%'}}
+                                >
+                                    <option value="">Toutes les spécialités</option>
+                                    <option value="Généraliste">Généraliste</option>
+                                    <option value="Cardiologue">Cardiologue</option>
+                                    <option value="Dentiste">Dentiste</option>
+                                    <option value="Diagnostien">Diagnostien</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                {doctors.length === 0 ? <p>Aucun médecin trouvé.</p> : 
+                                    doctors.map(doc => (
+                                        <div key={doc._id || doc.id} className="card" style={{marginBottom:'15px', textAlign: 'left', borderLeft: selectedDoctor && (selectedDoctor._id || selectedDoctor.id) === (doc._id || doc.id) ? '5px solid #007bff' : 'none'}}>
+                                            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                                                <div>
+                                                    <h3 style={{margin:'0 0 5px 0'}}>Dr. {doc.userInfo ? doc.userInfo.lastName : "Inconnu"} {doc.userInfo ? doc.userInfo.firstName : ""}</h3> 
+                                                    <span style={{background:'#e3f2fd', color:'#0d47a1', padding:'2px 8px', borderRadius:'10px', fontSize:'12px'}}>
+                                                        {doc.specialty}
+                                                    </span>
+                                                    <p style={{fontSize:'14px', color:'#555', marginTop:'10px'}}>{doc.description || "Pas de description"}</p>
+                                                </div>
+                                                <button onClick={() => handleViewSlots(doc)} style={{width:'auto'}}>
+                                                    Prendre RDV
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))
+                                }
+                            </div>
+                        </div>
+
+                        {/* COLONNE DROITE : CRENEAUX OU RDV */}
+                        <div>
+                            {selectedDoctor ? (
+                                <div className="card" style={{position:'sticky', top:'20px', border:'2px solid #007bff'}}>
+                                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                                        <h3 style={{margin:0}}>Disponibilités</h3>
+                                        <button onClick={() => setSelectedDoctor(null)} style={{background:'transparent', color:'#333', width:'auto', padding:0}}>❌</button>
+                                    </div>
+                                    <p style={{fontSize:'14px', color:'#666'}}>Dr. {selectedDoctor.userInfo ? selectedDoctor.userInfo.lastName : selectedDoctor.specialty}</p>
+                                    <hr/>
+                                    {msg && <p>{msg}</p>}
+                                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px', maxHeight:'400px', overflowY:'auto'}}>
+                                        {slots.map(slot => (
+                                            <button key={slot._id || slot.id} onClick={() => handleBookSlot(slot)} style={{background:'#28a745', fontSize:'13px', margin:0}}>
+                                                {new Date(slot.start_datetime).toLocaleDateString()} <br/>
+                                                <strong>{new Date(slot.start_datetime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</strong>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="card" style={{position:'sticky', top:'20px', background:'#fff3cd', border:'1px solid #ffeeba'}}>
+                                    <h3 style={{color:'#856404'}}>📅 Mes Rendez-vous</h3>
+                                    {appointments.length === 0 ? <p>Aucun rendez-vous à venir.</p> :
+                                        appointments.map(appt => (
+                                            <div key={appt._id || appt.id} style={{background:'white', padding:'10px', marginBottom:'10px', borderRadius:'5px', borderLeft:'4px solid #28a745', textAlign:'left', boxShadow:'0 1px 3px rgba(0,0,0,0.1)'}}>
+                                                
+                                                {/* NOM DU DOCTEUR */}
+                                                <div style={{fontWeight:'bold', color:'#333', fontSize:'1.1em'}}>
+                                                    Dr. {appt.doctorInfo ? appt.doctorInfo.lastName : "Inconnu"}
+                                                </div>
+
+                                                {/* SPECIALITE */}
+                                                <div style={{color:'#007bff', fontSize:'0.9em', marginBottom:'5px'}}>
+                                                    {appt.practitionerInfo ? appt.practitionerInfo.specialty : "Spécialité inconnue"}
+                                                </div>
+
+                                                {/* DATE ET HEURE */}
+                                                <div style={{color:'#555', fontSize:'0.9em'}}>
+                                                    📅 {new Date(appt.start_datetime).toLocaleDateString()} <br/>
+                                                    🕒 {new Date(appt.start_datetime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                                </div>
+                                            </div>
+                                        ))
+                                    }
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // --- COMPOSANT : DASHBOARD MEDECIN ---
+        function DoctorDashboard({ user, onLogout }) {
+            const [appointments, setAppointments] = useState([]);
+            const [practitionerProfile, setPractitionerProfile] = useState(null);
+            
+            // États du formulaire
+            const [spec, setSpec] = useState('Généraliste');
+            const [desc, setDesc] = useState('');
+            const [loading, setLoading] = useState(false);
+
+            useEffect(() => {
+                fetchData();
+            }, [user._id, user.id]);
+
+            async function fetchData() {
+                try {
+                    const res = await fetch('/api/practitioners');
+                    const practitioners = await res.json();
+                    
+                    const currentUserId = user._id || user.id;
+                    const myProfile = practitioners.find(p => String(p.user_id) === String(currentUserId));
+                    
+                    if (myProfile) {
+                        setPractitionerProfile(myProfile);
+                        const resAppt = await fetch(`/api/appointments/practitioner/${myProfile._id}`);
+                        if(resAppt.ok) {
+                            const data = await resAppt.json();
+                            const sorted = data.sort((a, b) => new Date(a.start_datetime) - new Date(b.start_datetime));
+                            setAppointments(sorted);
+                        }
+                    }
+                } catch (err) { console.error(err); }
+            }
+
+            const handleCreateProfile = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+
+                const userId = user._id || user.id; 
+
+                if (!userId) {
+                    alert("Erreur ID utilisateur.");
+                    setLoading(false);
+                    return;
+                }
+
+                try {
+                    // 1. CRÉATION DU PROFIL
+                    const res = await fetch('/api/practitioners', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            user_id: userId,
+                            specialty: spec,
+                            description: desc || "Médecin certifié."
+                        })
+                    });
+
+                    if (res.ok) {
+                        const newDoc = await res.json();
+                        
+                        // 2. GÉNÉRATION AUTOMATIQUE DES CRÉNEAUX (SANS BOUTON)
+                        // Semaine prochaine : Lundi à Vendredi
+                        const d = new Date();
+                        d.setDate(d.getDate() + ((1 + 7 - d.getDay()) % 7) || 7); // Trouver le prochain Lundi
+                        d.setHours(0,0,0,0);
+
+                        const hours = [9, 10, 11, 14, 15]; // Les heures demandées
+                        const requests = [];
+
+                        // Boucle sur 5 jours (Lundi -> Vendredi)
+                        for (let i = 0; i < 5; i++) { 
+                            const currentDay = new Date(d);
+                            currentDay.setDate(d.getDate() + i);
+
+                            hours.forEach(h => {
+                                const start = new Date(currentDay);
+                                start.setHours(h, 0, 0, 0);
+                                
+                                const end = new Date(start);
+                                end.setHours(h + 1); // Durée 1h
+
+                                requests.push(
+                                    fetch('/api/availability-slots', { 
+                                        method: 'POST', 
+                                        headers: {'Content-Type': 'application/json'}, 
+                                        body: JSON.stringify({ 
+                                            practitioner_id: newDoc._id, 
+                                            start_datetime: start, 
+                                            end_datetime: end 
+                                        }) 
+                                    })
+                                );
+                            });
+                        }
+
+                        // On attend que tous les créneaux soient créés
+                        await Promise.all(requests);
+
+                        alert("✅ Profil créé et planning généré automatiquement !");
+                        setPractitionerProfile(newDoc); 
+                        setAppointments([]); 
+                    } else {
+                        const errorData = await res.json();
+                        alert(`Erreur : ${errorData.error}`);
+                    }
+                } catch (err) { console.error(err); }
+                setLoading(false);
+            };
+
+            return (
+                <div style={{maxWidth: '800px', margin: '0 auto', padding: '20px'}}>
+                    <header style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'30px'}}>
+                        <div>
+                            <h2 style={{marginBottom:'5px'}}>Dr. {user.lastName} 👨‍⚕️</h2>
+                            <span style={{color:'#666'}}>Espace Praticien</span>
+                        </div>
+                        <button onClick={onLogout} style={{width:'auto', background:'#6c757d'}}>Déconnexion</button>
+                    </header>
+
+                    {!practitionerProfile ? (
+                        <div className="card" style={{width: '100%', borderLeft: '4px solid #ffc107', textAlign:'left'}}>
+                            <h3 style={{color:'#d39e00'}}>⚠️ Finalisation de votre compte</h3>
+                            <p>Bienvenue Docteur. Pour activer votre espace de rendez-vous, veuillez renseigner votre spécialité.</p>
+                            <p style={{fontSize:'0.9em', color:'#666'}}>Note : Un planning type sera généré automatiquement pour la semaine prochaine.</p>
+                            
+                            <form onSubmit={handleCreateProfile} style={{marginTop:'20px'}}>
+                                <label style={{fontWeight:'bold'}}>Spécialité :</label>
+                                <select value={spec} onChange={e => setSpec(e.target.value)} style={{marginBottom:'15px'}}>
+                                    <option value="Généraliste">Généraliste</option>
+                                    <option value="Dentiste">Dentiste</option>
+                                    <option value="Cardiologue">Cardiologue</option>
+                                    <option value="Diagnostien">Diagnostien</option>
+                                    <option value="Pédiatre">Pédiatre</option>
+                                </select>
+
+                                <label style={{fontWeight:'bold'}}>Description courte :</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="Ex: Expert en médecine du sport..." 
+                                    value={desc} 
+                                    onChange={e => setDesc(e.target.value)} 
+                                />
+
+                                <button type="submit" disabled={loading} style={{background:'#ffc107', color:'black'}}>
+                                    {loading ? 'Création...' : 'Activer mon profil Médecin'}
+                                </button>
+                            </form>
+                        </div>
+                    ) : (
+                        <div className="card" style={{width: '100%', textAlign:'left'}}>
+                            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'1px solid #eee', paddingBottom:'10px', marginBottom:'15px'}}>
+                                <h3 style={{margin:0}}>📅 Mon Planning</h3>
+                                <span style={{background:'#e3f2fd', color:'#0d47a1', padding:'2px 10px', borderRadius:'15px', fontSize:'14px'}}>
+                                    {practitionerProfile.specialty}
+                                </span>
+                            </div>
+                            
+                            {appointments.length === 0 ? <p style={{color:'#666', fontStyle:'italic'}}>Aucun rendez-vous prévu pour le moment.</p> :
+                                appointments.map(appt => (
+                                    <div key={appt._id} style={{
+                                        border:'1px solid #eee', 
+                                        borderRadius:'8px',
+                                        padding:'15px', 
+                                        marginBottom:'15px', 
+                                        background:'#fff',
+                                        borderLeft:'5px solid #007bff',
+                                        boxShadow:'0 2px 4px rgba(0,0,0,0.05)'
+                                    }}>
+                                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
+                                            <div>
+                                                <div style={{fontSize:'1.1em', fontWeight:'bold', color:'#333', marginBottom:'5px'}}>
+                                                    👤 {appt.patientInfo ? `${appt.patientInfo.firstName} ${appt.patientInfo.lastName}` : "Patient Inconnu"}
+                                                </div>
+                                                <div style={{color:'#666', fontSize:'0.9em', marginBottom:'10px'}}>
+                                                    📧 {appt.patientInfo ? appt.patientInfo.email : ""} <br/>
+                                                    📞 {appt.patientInfo ? appt.patientInfo.phone || "Non renseigné" : ""}
+                                                </div>
+                                            </div>
+
+                                            <div style={{textAlign:'right'}}>
+                                                <div style={{fontWeight:'bold', color:'#007bff', fontSize:'1.1em'}}>
+                                                    {new Date(appt.start_datetime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                                </div>
+                                                <div style={{fontSize:'0.9em', color:'#555'}}>
+                                                    {new Date(appt.start_datetime).toLocaleDateString()}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            }
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // --- COMPOSANT PRINCIPAL ---
         function App() {
-            // states
-            const [isLoginMode, setIsLoginMode] = useState(true); // Toggle between Login and Register
+            const [isLoginMode, setIsLoginMode] = useState(true);
             const [token, setToken] = useState(sessionStorage.getItem('token') || null);
             const [user, setUser] = useState(() => {
                 const storedUser = sessionStorage.getItem('user');
@@ -36,31 +446,27 @@
             const [error, setError] = useState('');
             const [successMsg, setSuccessMsg] = useState('');
             const [loading, setLoading] = useState(true);
-
-            // Form Fields
+            
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
             const [firstName, setFirstName] = useState('');
             const [lastName, setLastName] = useState('');
             const [phone, setPhone] = useState('');
+            const [regRole, setRegRole] = useState('patient');
 
-            // On component mount, verify session is intact
             useEffect(() => {
                 const storedToken = sessionStorage.getItem('token');
                 const storedUser = sessionStorage.getItem('user');
                 
                 if (storedToken && storedUser) {
-                    // Session exists
                     setToken(storedToken);
                     setUser(JSON.parse(storedUser));
                 } else {
-                    // No session, clear everything
                     handleLogout();
                 }
                 setLoading(false);
             }, []);
 
-            // logic handler
             const handleLogin = async (e) => {
                 e.preventDefault();
                 setError(''); setSuccessMsg('');
@@ -74,21 +480,13 @@
                     if (res.ok) {
                         setToken(data.token);
                         setUser(data.user);
-                        // Use sessionStorage instead of localStorage
                         sessionStorage.setItem('token', data.token);
                         sessionStorage.setItem('user', JSON.stringify(data.user));
-                        // Clear form fields
-                        setEmail('');
-                        setPassword('');
-                    } else { 
-                        setError(data.error); 
-                    }
-                } catch (err) { 
-                    setError('Server error'); 
-                }
+                        setEmail(''); setPassword('');
+                    } else { setError(data.error || 'Login failed'); }
+                } catch (err) { setError('Server error'); }
             };
 
-            //  register handler
             const handleRegister = async (e) => {
                 e.preventDefault();
                 setError(''); setSuccessMsg('');
@@ -98,25 +496,16 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
                             firstName, lastName, email, phone, password, 
-                            role: 'patient' // Force patient role for this example
+                            role: regRole 
                         })
                     });
                     const data = await res.json();
                     if (res.ok) {
-                        setSuccessMsg('Account created! Please log in.');
-                        setIsLoginMode(true); // Return to login view
-                        // Clear form fields
-                        setFirstName('');
-                        setLastName('');
-                        setEmail('');
-                        setPhone('');
-                        setPassword('');
-                    } else { 
-                        setError(data.error); 
-                    }
-                } catch (err) { 
-                    setError('Server error'); 
-                }
+                        setSuccessMsg('Compte créé ! Connectez-vous.');
+                        setIsLoginMode(true);
+                        setFirstName(''); setLastName(''); setEmail(''); setPhone(''); setPassword('');
+                    } else { setError(data.error); }
+                } catch (err) { setError('Server error'); }
             };
 
             const handleLogout = () => {
@@ -125,68 +514,56 @@
                 sessionStorage.removeItem('token');
                 sessionStorage.removeItem('user');
                 setIsLoginMode(true);
-                // Clear all form fields
-                setEmail('');
-                setPassword('');
-                setFirstName('');
-                setLastName('');
-                setPhone('');
             };
 
-            if (loading) {
-                return (
-                    <div className="card">
-                        <h2>Loading...</h2>
-                    </div>
-                );
-            }
+            if (loading) return <div className="card"><h2>Loading...</h2></div>;
 
-            // dashboard (If connected) 
             if (token && user) {
-                return (
-                    <div className="card">
-                        <div className="success">Connected</div>
-                        <h3>Hello {user?.firstName || user?.first_name}</h3>
-                        <p>Email: <strong>{user?.email}</strong></p>
-                        <p>Role: <strong>{user?.role}</strong></p>
-                        <hr style={{margin:'20px 0', border:'0', borderTop:'1px solid #eee'}}/>
-                        <button onClick={handleLogout} style={{background:'#6c757d'}}>Logout</button>
-                    </div>
-                );
+                if (user.role === 'practitioner' || user.role === 'admin') {
+                    return <DoctorDashboard user={user} onLogout={handleLogout} />;
+                } else {
+                    return <PatientDashboard user={user} onLogout={handleLogout} />;
+                }
             }
 
-            // forms (Login / Register)
             return (
                 <div className="card">
-                    <h2>{isLoginMode ? 'Login' : 'Register'}</h2>
+                    <h2>{isLoginMode ? 'Connexion' : 'Inscription'}</h2>
                     
                     {error && <div className="error">{error}</div>}
                     {successMsg && <div className="success">{successMsg}</div>}
 
                     {isLoginMode ? (
-                        // login form
                         <form onSubmit={handleLogin}>
                             <input type="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} required />
-                            <input type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} required />
-                            <button type="submit">Log In</button>
+                            <input type="password" placeholder="Mot de passe" value={password} onChange={e=>setPassword(e.target.value)} required />
+                            <button type="submit">Se connecter</button>
                         </form>
                     ) : (
-                        // register form
                         <form onSubmit={handleRegister}>
-                            <input type="text" placeholder="First Name" value={firstName} onChange={e=>setFirstName(e.target.value)} required />
-                            <input type="text" placeholder="Last Name" value={lastName} onChange={e=>setLastName(e.target.value)} required />
+                            <input type="text" placeholder="Prénom" value={firstName} onChange={e=>setFirstName(e.target.value)} required />
+                            <input type="text" placeholder="Nom" value={lastName} onChange={e=>setLastName(e.target.value)} required />
                             <input type="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} required />
-                            <input type="tel" placeholder="Phone" value={phone} onChange={e=>setPhone(e.target.value)} />
-                            <input type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} required />
-                            <button type="submit" style={{background: '#28a745'}}>Create Account</button>
+                            <input type="tel" placeholder="Téléphone" value={phone} onChange={e=>setPhone(e.target.value)} />
+                            <input type="password" placeholder="Mot de passe" value={password} onChange={e=>setPassword(e.target.value)} required />
+                            
+                            <div style={{margin:'10px 0', textAlign:'left'}}>
+                                <label>Je suis : </label>
+                                <select value={regRole} onChange={e=>setRegRole(e.target.value)} style={{padding:'5px'}}>
+                                    <option value="patient">Patient</option>
+                                    <option value="practitioner">Médecin</option>
+                                </select>
+                            </div>
+
+                            <button type="submit" style={{background: '#28a745'}}>Créer un compte</button>
                         </form>
                     )}
 
                     <p style={{marginTop: '15px', fontSize: '0.9rem'}}>
-                        {isLoginMode ? "No account yet?" : "Already have an account?"}
+                        {isLoginMode ? "Pas encore de compte ?" : "Déjà un compte ?"}
                         <br/>
                         <a href="#" onClick={(e) => { e.preventDefault(); setIsLoginMode(!isLoginMode); setError(''); }}>
-                            {isLoginMode ? "Create an account" : "Log In"}
+                            {isLoginMode ? "Créer un compte" : "Se connecter"}
                         </a>
                     </p>
                 </div>

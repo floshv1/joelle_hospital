@@ -1,23 +1,24 @@
 import { Appointment } from "../models/Appointment.js";
+import { AvailabilitySlot } from "../models/AvailabilitySlot.js";
 
 export class AppointmentController {
+  
   // Create a new appointment
   static async createAppointment(req, res) {
     try {
       const { patient_id, practitioner_id, start_datetime, end_datetime, created_by } = req.body;
 
-      // Validate required fields
       if (!patient_id || !practitioner_id || !start_datetime || !end_datetime || !created_by) {
         return res.status(400).json({ error: "Missing required fields" });
       }
 
-      // Validate dates
       const startDate = new Date(start_datetime);
       const endDate = new Date(end_datetime);
       if (startDate >= endDate) {
         return res.status(400).json({ error: "Start datetime must be before end datetime" });
       }
 
+      // 1. Création du RDV
       const appointment = await Appointment.create({
         patient_id,
         practitioner_id,
@@ -26,6 +27,9 @@ export class AppointmentController {
         created_by,
         status: "booked",
       });
+
+      // 2. Suppression du créneau de disponibilité correspondant
+      await AvailabilitySlot.deleteBySlot(practitioner_id, start_datetime, end_datetime);
 
       res.status(201).json(appointment);
     } catch (error) {

@@ -65,4 +65,14 @@ export class AvailabilitySlot {
     const collection = await this.getCollection();
     return collection.find(filter).toArray();
   }
+
+  static async deleteBySlot(practitionerId, start, end) {
+    const collection = await this.getCollection();
+    const result = await collection.deleteOne({
+      practitioner_id: new ObjectId(practitionerId),
+      start_datetime: new Date(start),
+      end_datetime: new Date(end)
+    });
+    return result.deletedCount > 0;
+  }
 }

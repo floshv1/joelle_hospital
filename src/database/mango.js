@@ -14,7 +14,7 @@ function getClient() {
         }
         // Add SSL options for better connectivity
         const options = {
-            tls: true,
+            tls: false,
             tlsAllowInvalidCertificates: process.env.NODE_ENV === "development",
             retryWrites: true,
             maxPoolSize: 10,
